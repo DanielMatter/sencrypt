@@ -3,7 +3,7 @@ import { ShieldCheckIcon, PaperAirplaneIcon, LockClosedIcon, CheckIcon } from "@
 import EncryptionFlow from "@/components/EncryptionFlow";
 
 const highlights = [
-  "No account required for recipients",
+  "Recipient account required",
   "Files automatically expire",
   "Unlimited file size (chunked transfer)",
   "Works on all modern browsers",
@@ -54,16 +54,6 @@ export default function Home() {
                 How it works <span aria-hidden="true">→</span>
               </Link>
             </div>
-          </div>
-
-          <div className="mt-24 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-8 gap-y-4 items-center justify-center opacity-40 grayscale filter hover:grayscale-0 transition-all duration-700">
-            {/* Mock "Trusted by" or tech labels */}
-            <div className="text-center font-mono text-sm">WEB CRYPTO</div>
-            <div className="text-center font-mono text-sm">AES-GCM</div>
-            <div className="text-center font-mono text-sm">RSA-OAEP</div>
-            <div className="text-center font-mono text-sm">TYPESCRIPT</div>
-            <div className="text-center font-mono text-sm">NEXT.JS</div>
-            <div className="text-center font-mono text-sm">OPEN SOURCE</div>
           </div>
         </div>
       </div>
