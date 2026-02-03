@@ -1,36 +1,55 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# sencrypt
 
-## Getting Started
+Sencrypt is a Next.js web app for sending encrypted files between approved users. Files are chunked and encrypted on-device, uploaded as encrypted chunks, and decrypted locally by the receiver with a private key. The server never stores private keys.
 
-First, run the development server:
+## Stack
+
+- Next.js + Tailwind
+- NextAuth magic-link auth (NodeMailer)
+- Drizzle ORM + SQLite
+- File System Access API for persistent local chunk storage
+
+## Setup
+
+1. Install dependencies.
+2. Copy `.env.example` to `.env.local` and set values.
+3. Create your first user:
+
+```bash
+node scripts/seed.mjs --email you@example.com --username you --can-receive
+```
+
+## Running
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Environment variables
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Required:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `DB_PATH`
+- `NEXTAUTH_URL`
+- `NEXTAUTH_SECRET`
+- `EMAIL_SERVER_HOST`
+- `EMAIL_SERVER_PORT`
+- `EMAIL_SERVER_USER`
+- `EMAIL_SERVER_PASSWORD`
+- `EMAIL_FROM`
+ 
+Optional (dev only):
 
-## Learn More
+- `STUB_LOGIN_ENABLED` (set `true` to enable credentials-based stub login)
+- `STUB_LOGIN_EMAIL` (email to auto-login as)
+- `STUB_LOGIN_CAN_RECEIVE` (whether the stub user can receive files)
+- `NEXT_PUBLIC_STUB_LOGIN` (set `true` to show the stub login button)
 
-To learn more about Next.js, take a look at the following resources:
+Optional:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `STORAGE_PATH` (defaults to `./storage`)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Notes
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Public keys must be OpenSSH `ssh-rsa` format.
+- For decryption, private keys must be PKCS#8. OpenSSH private keys are converted client-side using a WASM helper when available.
