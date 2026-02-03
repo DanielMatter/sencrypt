@@ -47,7 +47,7 @@ export default function Navbar() {
                 <div className="flex h-16 justify-between">
                     <div className="flex">
                         <div className="shrink-0 items-center flex">
-                            <Link href="/dashboard" className="text-xl font-bold bg-linear-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
+                            <Link href="/" className="text-xl font-bold bg-linear-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
                                 Sencrypt
                             </Link>
                         </div>
