@@ -264,6 +264,12 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
                 >
                     Go to Login
                 </button>
+                <br />
+                <br />
+                <p className="text-sm text-gray-400">
+                    If you are uploading a file and get this error, leave the page open and wait for some minutes.<br />
+                    The file will be uploaded in the background.
+                </p>
             </div>
         );
     }
