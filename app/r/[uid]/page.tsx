@@ -3,7 +3,7 @@
 import { useState, useEffect, use } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { PaperAirplaneIcon } from "@heroicons/react/24/outline";
+import { CheckBadgeIcon, PaperAirplaneIcon } from "@heroicons/react/24/outline";
 import {
     generateAESKey,
     importPublicKey,
@@ -16,6 +16,7 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
     const { uid } = use(params);
     const { data: session } = useSession();
     const [recipientKeys, setRecipientKeys] = useState<{ id: string, name: string, keyData: string }[]>([]);
+    const [recipientName, setRecipientName] = useState<string>("");
     const [selectedKey, setSelectedKey] = useState<string>("");
 
     const [file, setFile] = useState<File | null>(null);
@@ -23,6 +24,8 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
     const [progress, setProgress] = useState(0);
     const [status, setStatus] = useState("");
     const [error, setError] = useState("");
+    const [success, setSuccess] = useState(false);
+    const [transmissionId, setTransmissionId] = useState<string | null>("Test-12345");
     const [isDragging, setIsDragging] = useState(false);
 
     const router = useRouter();
@@ -36,6 +39,16 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
                 if (data.length > 0) setSelectedKey(data[0].id);
             })
             .catch(err => setError("Could not load recipient keys (User might not exist or has no keys)"));
+    }, [uid, session]);
+
+    useEffect(() => {
+        if (!session) return;
+        fetch(`/api/users/${uid}/info`)
+            .then(res => res.json())
+            .then(data => {
+                setRecipientName(data.name);
+            })
+            .catch(err => setError("Could not load recipient name"));
     }, [uid, session]);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -66,8 +79,6 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
     };
 
     const startUpload = async () => {
-        console.log(file, uid, selectedKey);
-
         if (!file || !uid || !selectedKey) return;
         setIsUploading(true);
         setStatus("Initiating transfer...");
@@ -84,6 +95,10 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
             const wrappedKeyBuffer = await wrapAESKey(aesKey, publicKey);
             const encryptedKeyBase64 = bufferToBase64(wrappedKeyBuffer);
 
+            // const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB
+            const CHUNK_SIZE = 10 * 1024 * 1024;
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
             // 3. Init Transmission
             const initRes = await fetch('/api/transmissions/init', {
                 method: 'POST',
@@ -93,23 +108,85 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
                     fileName: file.name,
                     fileSize: file.size,
                     encryptedKey: encryptedKeyBase64,
+                    expectedChunks: totalChunks,
+                    chunkSize: CHUNK_SIZE
                 })
             });
 
             if (!initRes.ok) throw new Error("Failed to initiate transmission");
             const { transmissionId } = await initRes.json();
+            setTransmissionId(transmissionId);
 
-            const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB as requested
-            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+            // For large files that do not fit into memory
+            const fileStream = file.stream();
+            const reader = fileStream.getReader();
+            let excessChunkBuffer: Uint8Array | null = null;
+
+            const readNextChunk = async (lastExcess: Uint8Array | null) => {
+                let currentChunk = new Uint8Array(CHUNK_SIZE);
+                let excessChunk: Uint8Array | null = null;
+                let position = 0;
+
+                if (lastExcess && lastExcess.length <= CHUNK_SIZE) {
+                    currentChunk.set(lastExcess, position);
+                    position += lastExcess.length;
+                } else if (lastExcess) {
+                    currentChunk.set(lastExcess.slice(0, CHUNK_SIZE), position);
+                    position += CHUNK_SIZE;
+                    excessChunk = lastExcess.slice(CHUNK_SIZE);
+                }
+
+                while (position < CHUNK_SIZE) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    if (position + value.length <= CHUNK_SIZE) {
+                        currentChunk.set(value, position);
+                        position += value.length;
+                    } else {
+                        const remaining = CHUNK_SIZE - position;
+                        currentChunk.set(value.slice(0, remaining), position);
+                        excessChunk = value.slice(remaining);
+                        position += remaining;
+                        break;
+                    }
+                }
+
+                // If the chunk is full, return it directly to avoid copying
+                if (position === CHUNK_SIZE) {
+                    return {
+                        chunk: currentChunk,
+                        excess: excessChunk
+                    };
+                }
+
+                // Otherwise, slice it to the actual size
+                return {
+                    chunk: currentChunk.slice(0, position),
+                    excess: excessChunk
+                }
+            }
 
             for (let i = 0; i < totalChunks; i++) {
                 setStatus(`Encrypting and uploading chunk ${i + 1}/${totalChunks}...`);
-                const start = i * CHUNK_SIZE;
-                const end = Math.min(start + CHUNK_SIZE, file.size);
-                const chunk = file.slice(start, end);
 
-                const chunkBuffer = await chunk.arrayBuffer();
-                const encryptedData = await encryptChunk(chunkBuffer, aesKey, i);
+                const { chunk, excess } = await readNextChunk(excessChunkBuffer);
+                excessChunkBuffer = excess;
+
+                // Encrypt directly without extra buffer slice if possible
+                const chunkBuffer = chunk.buffer === chunk.buffer ? chunk : chunk.buffer.slice(0, chunk.byteLength); // Handle if it's a view or full buffer
+
+                // We need to pass ArrayBuffer to encryptChunk. 
+                // chunk is Uint8Array. chunk.buffer is the underlying ArrayBuffer.
+                // If chunk covers the whole buffer, we can pass chunk.buffer.
+                // If chunk is a slice, we need to make a copy.
+                let dataToEncrypt: ArrayBuffer;
+                if (chunk.byteOffset === 0 && chunk.byteLength === chunk.buffer.byteLength) {
+                    dataToEncrypt = chunk.buffer;
+                } else {
+                    dataToEncrypt = chunk.slice().buffer;
+                }
+
+                const encryptedData = await encryptChunk(dataToEncrypt, aesKey, i);
 
                 const uploadRes = await fetch(`/api/transmissions/${transmissionId}/chunk`, {
                     method: 'POST',
@@ -122,7 +199,7 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
             }
 
             setStatus("Upload complete!");
-            setTimeout(() => router.push('/dashboard'), 2000);
+            setSuccess(true);
         } catch (e: any) {
             console.log("An error occured", e)
             setStatus(`Error: ${e.message}`);
@@ -146,6 +223,30 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
         );
     }
 
+    if (success) {
+        return (
+            <div className="flex min-h-screen flex-col items-center justify-center p-8 text-center text-white">
+                <div className="rounded-full bg-green-500/10 p-4 mb-4">
+                    <CheckBadgeIcon className="h-12 w-12 text-green-500" />
+                </div>
+                <h1 className="text-2xl font-bold mb-4">File sent successfully!</h1>
+                <p className="mb-8">
+                    Your file has been sent to {recipientName}.<br />
+                    Your transmission id is <span className="text-xs inline font-mono bg-white/5 px-2 py-1 rounded-md">{transmissionId}</span>
+                </p>
+                <p>
+                    <button
+                        onClick={() => router.push(`/r/${uid}`)}
+                        className="rounded-md bg-indigo-500 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-400 flex items-center gap-2 cursor-pointer"
+                    >
+                        Send another file
+                        <PaperAirplaneIcon className="h-4 w-4" />
+                    </button>
+                </p>
+            </div>
+        );
+    }
+
     return (
         <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-10">
             <div className="flex items-center space-x-4 mb-8">
@@ -163,9 +264,9 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
 
                 {/* Recipient Info */}
                 <div>
-                    <label className="block text-sm font-medium leading-6 text-zinc-300">Recipient ID</label>
+                    <label className="block text-sm font-medium leading-6 text-zinc-300">Recipient Name</label>
                     <div className="mt-2 block w-full rounded-md border-0 bg-white/5 py-1.5 text-zinc-400 pl-3 font-mono text-xs">
-                        {uid}
+                        {recipientName}
                     </div>
                 </div>
 

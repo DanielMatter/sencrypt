@@ -75,4 +75,6 @@ export const transmissions = sqliteTable("transmissions", {
     totalChunks: int("total_chunks").notNull(),
     encryptedKey: text("encrypted_key"), // The AES key encrypted with the recipient's public key
     createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+    chunkSize: int("chunk_size").notNull(),
+    expectedChunks: int("expected_chunks").notNull(),
 });

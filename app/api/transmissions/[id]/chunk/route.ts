@@ -4,6 +4,9 @@ import { NextResponse } from "next/server";
 // @ts-ignore
 import fs from "fs";
 import path from "path";
+import { db } from "@/lib/db";
+import { transmissions } from "@/lib/schema";
+import { eq, sql } from "drizzle-orm";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
     const session = await getServerSession(authOptions);
@@ -28,8 +31,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     // Read stream and write to file
     const blob = await req.blob();
     const buffer = Buffer.from(await blob.arrayBuffer());
-
     fs.writeFileSync(chunkPath, buffer);
+
+    // Increment total chunks in the database by one
+    await db.update(transmissions).set({
+        totalChunks: sql`${transmissions.totalChunks} + 1`
+    }).where(eq(transmissions.id, id));
 
     return NextResponse.json({ success: true });
 }

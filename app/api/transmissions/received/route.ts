@@ -23,6 +23,8 @@ export async function GET() {
         createdAt: transmissions.createdAt,
         totalChunks: transmissions.totalChunks,
         encryptedKey: transmissions.encryptedKey,
+        expectedChunks: transmissions.expectedChunks,
+        chunkSize: transmissions.chunkSize,
     })
         .from(transmissions)
         .leftJoin(users, eq(transmissions.senderId, users.id))

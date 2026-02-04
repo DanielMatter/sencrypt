@@ -13,9 +13,7 @@ export async function POST(req: Request) {
         return new NextResponse("Unauthorized", { status: 401 });
     }
 
-    const { receiverId, fileName, fileSize, encryptedKey } = await req.json();
-    const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB as requested
-    const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
+    const { receiverId, fileName, fileSize, encryptedKey, expectedChunks, chunkSize } = await req.json();
 
     // Create DB record
     const [transmission] = await db.insert(transmissions).values({
@@ -24,8 +22,10 @@ export async function POST(req: Request) {
         receiverId,
         fileName,
         fileSize,
-        totalChunks,
+        totalChunks: 0,
         encryptedKey,
+        chunkSize,
+        expectedChunks
     }).returning();
 
     // Create directory

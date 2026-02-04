@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/storage
+sqlite.db
 
 # next.js
 /.next/

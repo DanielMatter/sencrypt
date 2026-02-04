@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { PaperAirplaneIcon } from "@heroicons/react/24/outline";
+import { ProgressCirlce } from "@/components/ProgressCircle";
 
 export default function SentFileList() {
     const [files, setFiles] = useState<any[]>([]);
@@ -25,8 +26,11 @@ export default function SentFileList() {
                             To: {file.receiverName || file.receiverEmail} • {(file.fileSize / 1024 / 1024).toFixed(2)} MB • {new Date(file.createdAt).toLocaleDateString()}
                         </p>
                     </div>
-                    <div className="ml-4 flex-shrink-0">
-                        <PaperAirplaneIcon className="h-5 w-5 text-zinc-600" />
+                    <div className="ml-4 shrink-0">
+                        <ProgressCirlce
+                            progress={file.totalChunks / file.expectedChunks}
+                            icon={<PaperAirplaneIcon className="h-5 w-5 text-zinc-600" />}
+                        />
                     </div>
                 </li>
             ))}

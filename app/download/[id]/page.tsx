@@ -60,27 +60,95 @@ export default function DownloadPage({ params }: { params: Promise<{ id: string 
             const encryptedKeyBuffer = base64ToBuffer(transmission.encryptedKey);
             const aesKey = await unwrapAESKey(encryptedKeyBuffer, privateKey);
 
+            let writableStream: any = null;
+            let fileHandleForUniqueOpfs: any = null;
             const canUseSavePicker = 'showSaveFilePicker' in window;
 
+            // Strategy 1: Native File System Access (User Saves File directly)
             if (canUseSavePicker) {
-                // @ts-ignore
-                const handle = await window.showSaveFilePicker({
-                    suggestedName: transmission.fileName,
-                });
-                const writable = await handle.createWritable();
-
-                for (let i = 0; i < totalChunks; i++) {
-                    setStatus(`Downloading & Decrypting chunk ${i + 1}/${totalChunks}...`);
-                    const res = await fetch(`/api/transmissions/${id}/chunk?chunkId=${i}`);
-                    if (!res.ok) throw new Error("Failed to fetch chunk");
-                    const encryptedBuffer = await res.arrayBuffer();
-                    const decryptedBuffer = await decryptChunk(encryptedBuffer, aesKey, i);
-                    await writable.write(decryptedBuffer);
-                    setProgress(Math.round(((i + 1) / totalChunks) * 100));
+                try {
+                    // @ts-ignore
+                    const handle = await window.showSaveFilePicker({
+                        suggestedName: transmission.fileName,
+                    });
+                    writableStream = await handle.createWritable();
+                } catch (err: any) {
+                    if (err.name === 'AbortError') {
+                        throw err; // Stop if user cancelled
+                    }
+                    console.warn("showSaveFilePicker failed, trying fallback", err);
                 }
-                await writable.close();
+            }
+
+            // Strategy 2: OPFS (Origin Private File System) - ideal for large files if Save Picker is unavailable
+            if (!writableStream && navigator.storage?.getDirectory) {
+                try {
+                    const root = await navigator.storage.getDirectory();
+                    // Create a unique temp file
+                    const tempName = `sencrypt-${id}-${Date.now()}.part`;
+                    fileHandleForUniqueOpfs = await root.getFileHandle(tempName, { create: true });
+                    // @ts-ignore
+                    writableStream = await fileHandleForUniqueOpfs.createWritable();
+                    console.log("Using OPFS for download buffering");
+                } catch (err) {
+                    console.warn("OPFS failed, falling back to RAM", err);
+                }
+            }
+
+            // Execute Download
+            if (writableStream) {
+                // Streaming Mode (Low Memory)
+                try {
+                    for (let i = 0; i < totalChunks; i++) {
+                        setStatus(`Downloading & Decrypting chunk ${i + 1}/${totalChunks}...`);
+                        const res = await fetch(`/api/transmissions/${id}/chunk?chunkId=${i}`);
+                        if (!res.ok) throw new Error("Failed to fetch chunk");
+
+                        const encryptedBuffer = await res.arrayBuffer();
+                        const decryptedBuffer = await decryptChunk(encryptedBuffer, aesKey, i);
+
+                        await writableStream.write(decryptedBuffer);
+                        setProgress(Math.round(((i + 1) / totalChunks) * 100));
+                    }
+                    await writableStream.close();
+
+                    // If OPFS, we now export it to the user
+                    if (fileHandleForUniqueOpfs) {
+                        setStatus("Saving file...");
+                        const file = await fileHandleForUniqueOpfs.getFile();
+                        const url = URL.createObjectURL(file);
+
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = transmission.fileName;
+                        document.body.appendChild(a);
+                        a.click();
+
+                        console.log("Download started");
+                        // Wait a bit for the download to start
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+
+                        // Cleanup
+                        try {
+                            const root = await navigator.storage.getDirectory();
+                            await root.removeEntry(fileHandleForUniqueOpfs.name);
+                        } catch (cleanupErr) {
+                            console.warn("Failed to cleanup temp file", cleanupErr);
+                        }
+                    }
+                } catch (downloadErr) {
+                    console.error(downloadErr);
+                    // Try to close stream if open
+                    try { await writableStream.close(); } catch { }
+                    throw downloadErr;
+                }
+
             } else {
-                // Fallback for browsers without showSaveFilePicker
+                // Strategy 3: RAM Fallback (Legacy) - High Memory Usage
+                console.warn("Falling back to RAM buffering. Large files may crash.");
                 const chunks: ArrayBuffer[] = [];
                 for (let i = 0; i < totalChunks; i++) {
                     setStatus(`Downloading & Decrypting chunk ${i + 1}/${totalChunks}...`);

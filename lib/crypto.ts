@@ -189,7 +189,7 @@ function wrapPkcs1ToPkcs8(pkcs1Buffer: ArrayBuffer): ArrayBuffer {
     // Fill lengths (big-endian 16-bit)
     const view = new DataView(header.buffer);
     view.setUint16(2, totalLen, false);
-    view.setUint16(20, octetLen, false);
+    view.setUint16(24, octetLen, false);
 
     const result = new Uint8Array(header.length + pkcs1Uint8.length);
     result.set(header);

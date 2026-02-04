@@ -21,6 +21,9 @@ export async function GET() {
         receiverName: users.name,
         receiverEmail: users.email,
         createdAt: transmissions.createdAt,
+        totalChunks: transmissions.totalChunks,
+        expectedChunks: transmissions.expectedChunks,
+        chunkSize: transmissions.chunkSize,
     })
         .from(transmissions)
         .leftJoin(users, eq(transmissions.receiverId, users.id))
