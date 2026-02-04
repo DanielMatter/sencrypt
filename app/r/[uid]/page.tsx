@@ -310,8 +310,14 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
         } else if (size < 1024 * 10) {
             sizeString = (size / 1024).toFixed(1)
             unitString = "KB"
+        } else if (size < 1024 * 1024) {
+            sizeString = (size / 1024).toFixed(0)
+            unitString = "KB"
         } else if (size < 1024 * 1024 * 10) {
             sizeString = (size / 1024 / 1024).toFixed(1)
+            unitString = "MB"
+        } else if (size < 1024 * 1024 * 1024) {
+            sizeString = (size / 1024 / 1024).toFixed(0)
             unitString = "MB"
         } else if (size < 1024 * 1024 * 1024 * 10) {
             sizeString = (size / 1024 / 1024 / 1024).toFixed(1)
