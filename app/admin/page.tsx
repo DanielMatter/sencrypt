@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "../api/auth/[...nextauth]/route";
 import { redirect } from "next/navigation";
 import { createUser, deleteUser } from "../actions";
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 export default async function AdminPage() {
@@ -14,6 +15,12 @@ export default async function AdminPage() {
     }
 
     const allUsers = await db.select().from(users).all();
+
+    const updateCanReceiveAction = async (userId: string, canReceive: boolean) => {
+        "use server";
+        await db.update(users).set({ canReceive }).where(eq(users.id, userId));
+        revalidatePath("/admin");
+    };
 
     return (
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10">
@@ -63,7 +70,14 @@ export default async function AdminPage() {
                                 <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-white sm:pl-6">{user.name}</td>
                                 <td className="whitespace-nowrap px-3 py-4 text-sm text-zinc-300">{user.email}</td>
                                 <td className="whitespace-nowrap px-3 py-4 text-sm text-zinc-300">{user.role}</td>
-                                <td className="whitespace-nowrap px-3 py-4 text-sm text-zinc-300">{user.canReceive ? 'Yes' : 'No'}</td>
+                                <td className="whitespace-nowrap px-3 py-4 text-sm text-zinc-300">
+                                    <form action={async () => {
+                                        "use server";
+                                        await updateCanReceiveAction(user.id, !user.canReceive);
+                                    }}>
+                                        <button type="submit" className="text-zinc-300 hover:text-white">{user.canReceive ? 'Yes' : 'No'}</button>
+                                    </form>
+                                </td>
                                 <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
                                     <form action={async () => {
                                         "use server";
