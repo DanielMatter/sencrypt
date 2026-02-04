@@ -34,8 +34,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     fs.writeFileSync(chunkPath, buffer);
 
     // Increment total chunks in the database by one
+    // We count the files to be robust against retries
+    const currentChunks = fs.readdirSync(storagePath).length;
     await db.update(transmissions).set({
-        totalChunks: sql`${transmissions.totalChunks} + 1`
+        totalChunks: currentChunks
     }).where(eq(transmissions.id, id));
 
     return NextResponse.json({ success: true });

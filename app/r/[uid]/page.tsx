@@ -51,6 +51,18 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
             .catch(err => setError("Could not load recipient name"));
     }, [uid, session]);
 
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (isUploading) {
+                e.preventDefault();
+                e.returnValue = "";
+            }
+        };
+
+        window.addEventListener("beforeunload", handleBeforeUnload);
+        return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+    }, [isUploading]);
+
     const preventDirectories = (file: any) => {
         try {
             const entry = (file as any).webkitGetAsEntry?.();
@@ -182,24 +194,52 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
             }
 
             for (let i = 0; i < totalChunks; i++) {
-                setStatus(`Encrypting and uploading chunk ${i + 1}/${totalChunks}...`);
-
                 const { chunk, excess } = await readNextChunk(excessChunkBuffer);
                 excessChunkBuffer = excess;
 
                 // Encrypt directly without extra buffer slice if possible
+                setStatus(`Encrypting chunk ${i + 1}/${totalChunks}...`);
                 const encryptedData = await encryptChunk(chunk, aesKey, i);
 
                 // Yield to event loop to keep UI responsive
                 await new Promise(resolve => setTimeout(resolve, 0));
 
-                const uploadRes = await fetch(`/api/transmissions/${transmissionId}/chunk`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/octet-stream', 'X-Chunk-Id': i.toString() },
-                    body: encryptedData
-                });
+                // Retry logic
+                let attempts = 0;
+                const MAX_RETRIES = 5;
 
-                if (!uploadRes.ok) throw new Error(`Failed to upload chunk ${i}`);
+                while (true) {
+                    try {
+                        const attemptMsg = attempts > 0 ? ` (Attempt ${attempts + 1})` : "";
+                        setStatus(`Uploading chunk ${i + 1}/${totalChunks}${attemptMsg}...`);
+
+                        const uploadRes = await fetch(`/api/transmissions/${transmissionId}/chunk`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/octet-stream', 'X-Chunk-Id': i.toString() },
+                            body: encryptedData
+                        });
+
+                        if (!uploadRes.ok) {
+                            throw new Error(`Server responded with ${uploadRes.status}`);
+                        }
+
+                        // Success
+                        break;
+                    } catch (err: any) {
+                        attempts++;
+                        console.warn(`Chunk ${i} upload failed, attempt ${attempts}:`, err);
+
+                        if (attempts >= MAX_RETRIES) {
+                            throw new Error(`Failed to upload chunk ${i} after ${MAX_RETRIES} attempts: ${err.message}`);
+                        }
+
+                        // Exponential backoff with jitter
+                        const delay = Math.min(1000 * Math.pow(2, attempts), 10000) + Math.random() * 1000;
+                        setStatus(`Network error. Retrying chunk ${i + 1}/${totalChunks} in ${(delay / 1000).toFixed(1)}s...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    }
+                }
+
                 setProgress(Math.round(((i + 1) / totalChunks) * 100));
             }
 
@@ -373,7 +413,7 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
                         type="button"
                         onClick={startUpload}
                         disabled={!file || !uid || !selectedKey || isUploading}
-                        className="flex w-full justify-center rounded-md bg-indigo-500 px-3 py-2 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex w-full justify-center rounded-md bg-indigo-500 px-3 py-2 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-indigo-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {isUploading ? "Sending..." : "Encrypt & Send"}
                     </button>
