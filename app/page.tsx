@@ -5,7 +5,7 @@ import EncryptionFlow from "@/components/EncryptionFlow";
 const highlights = [
   "Recipient account required",
   "Files automatically expire",
-  "Unlimited file size (chunked transfer)",
+  "Unlimited file size",
   "Works on all modern browsers",
   "Open source & transparent",
   "No data tracking or cookies"
@@ -24,7 +24,7 @@ export default function Home() {
             <div className="mb-8 flex justify-center">
               <div className="relative rounded-full px-3 py-1 text-sm leading-6 text-zinc-400 ring-1 ring-white/10 hover:ring-white/20 transition-all duration-300 backdrop-blur-sm">
                 On-device encryption now active.{" "}
-                <Link href="/dashboard" className="font-semibold text-indigo-400 ml-1">
+                <Link href="#features" className="font-semibold text-indigo-400 ml-1">
                   Read more <span aria-hidden="true">&rarr;</span>
                 </Link>
               </div>
@@ -87,7 +87,7 @@ export default function Home() {
                 </dt>
                 <dd className="mt-4 flex flex-auto flex-col text-base leading-7 text-zinc-400">
                   <p className="flex-auto">
-                    Sending a 4GB file? No problem. Sencrypt splits large files into 10MB encrypted chunks for reliable, resumable, and ultra-fast uploads.
+                    Sending a 400GB file? No problem. Sencrypt splits large files into smaller, encrypted chunks for reliable, resumable, and ultra-fast uploads.
                   </p>
                 </dd>
               </div>

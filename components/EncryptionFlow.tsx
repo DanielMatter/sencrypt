@@ -47,9 +47,6 @@ export default function EncryptionFlow() {
                 </div>
 
                 <div className="relative">
-                    {/* Connection Line (Desktop) */}
-                    <div className="absolute top-1/2 left-0 w-full h-0.5 bg-zinc-800 -translate-y-1/2 hidden lg:block" />
-
                     <div className="grid grid-cols-1 gap-12 lg:grid-cols-4 relative group">
                         {steps.map((step, index) => (
                             <div key={step.title} className="relative flex flex-col items-center text-center">
