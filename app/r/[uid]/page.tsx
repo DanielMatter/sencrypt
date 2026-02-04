@@ -51,9 +51,22 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
             .catch(err => setError("Could not load recipient name"));
     }, [uid, session]);
 
+    const preventDirectories = (file: any) => {
+        try {
+            const entry = (file as any).webkitGetAsEntry?.();
+            if (entry?.isDirectory) {
+                setError("Folders/app bundles can’t be sent directly. Please zip them yourself first.");
+                return false;
+            }
+        } catch { }
+        return true;
+    }
+
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
-            setFile(e.target.files[0]);
+            const file = e.target.files[0];
+            if (!preventDirectories(file)) return;
+            requestAnimationFrame(() => setFile(file));
         }
     };
 
@@ -74,7 +87,9 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
         e.stopPropagation();
         setIsDragging(false);
         if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-            setFile(e.dataTransfer.files[0]);
+            if (!preventDirectories(e.dataTransfer.items[0])) return;
+            const file = e.dataTransfer.files[0];
+            requestAnimationFrame(() => setFile(file));
         }
     };
 
@@ -173,20 +188,10 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
                 excessChunkBuffer = excess;
 
                 // Encrypt directly without extra buffer slice if possible
-                const chunkBuffer = chunk.buffer === chunk.buffer ? chunk : chunk.buffer.slice(0, chunk.byteLength); // Handle if it's a view or full buffer
+                const encryptedData = await encryptChunk(chunk, aesKey, i);
 
-                // We need to pass ArrayBuffer to encryptChunk. 
-                // chunk is Uint8Array. chunk.buffer is the underlying ArrayBuffer.
-                // If chunk covers the whole buffer, we can pass chunk.buffer.
-                // If chunk is a slice, we need to make a copy.
-                let dataToEncrypt: ArrayBuffer;
-                if (chunk.byteOffset === 0 && chunk.byteLength === chunk.buffer.byteLength) {
-                    dataToEncrypt = chunk.buffer;
-                } else {
-                    dataToEncrypt = chunk.slice().buffer;
-                }
-
-                const encryptedData = await encryptChunk(dataToEncrypt, aesKey, i);
+                // Yield to event loop to keep UI responsive
+                await new Promise(resolve => setTimeout(resolve, 0));
 
                 const uploadRes = await fetch(`/api/transmissions/${transmissionId}/chunk`, {
                     method: 'POST',
@@ -247,6 +252,34 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
         );
     }
 
+    const fileSizeString = () => {
+        const size = file?.size
+        if (!size) return null;
+        let sizeString = ""
+        let unitString = ""
+
+        if (size < 1024) {
+            sizeString = size.toFixed(0)
+            unitString = "bytes"
+        } else if (size < 1024 * 10) {
+            sizeString = (size / 1024).toFixed(1)
+            unitString = "KB"
+        } else if (size < 1024 * 1024 * 10) {
+            sizeString = (size / 1024 / 1024).toFixed(1)
+            unitString = "MB"
+        } else if (size < 1024 * 1024 * 1024 * 10) {
+            sizeString = (size / 1024 / 1024 / 1024).toFixed(1)
+            unitString = "GB"
+        } else {
+            sizeString = (size / 1024 / 1024 / 1024).toFixed(0)
+            unitString = "GB"
+        }
+        return <>
+            <span className="font-mono">{sizeString} </span>
+            <span className="opacity-50 font-mono">{unitString}</span>
+        </>
+    }
+
     return (
         <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-10">
             <div className="flex items-center space-x-4 mb-8">
@@ -299,13 +332,15 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
                     >
                         {file ? (
                             <div className="text-white text-center">
-                                <p className="text-sm font-semibold">{file.name}</p>
-                                <p className="text-xs text-zinc-400">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-                                <button onClick={() => setFile(null)} className="mt-2 text-xs text-red-300 hover:text-red-200">Remove</button>
+                                {/* UTF8 bullet:  */}
+                                <p className="text-md font-bold text-indigo-400">{file.name}</p>
+                                <p className="text-md font-normal">{fileSizeString()}</p>
+                                <br />
+                                <button onClick={() => setFile(null)} className="text-sm font-bold text-red-300 hover:text-red-200 cursor-pointer bg-red-500/20 px-3 py-2 border border-red-500/10 rounded-md">Remove</button>
                             </div>
                         ) : (
                             <div className="text-center">
-                                <div className="mt-4 flex text-sm leading-6 text-zinc-400">
+                                <div className="flex text-sm leading-6 text-zinc-400">
                                     <label
                                         htmlFor="file-upload"
                                         className="relative cursor-pointer rounded-md bg-transparent font-semibold text-indigo-400 focus-within:outline-none focus-within:ring-2 focus-within:ring-indigo-600 focus-within:ring-offset-2 hover:text-indigo-300"

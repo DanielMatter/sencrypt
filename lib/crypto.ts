@@ -32,7 +32,7 @@ export async function importAESKey(keyData: ArrayBuffer): Promise<CryptoKey> {
 
 // Encrypt a chunk using AES-GCM
 // Using chunkId as IV for simplicity and deterministic IV per chunk
-export async function encryptChunk(chunk: ArrayBuffer, key: CryptoKey, chunkId: number): Promise<ArrayBuffer> {
+export async function encryptChunk(chunk: BufferSource, key: CryptoKey, chunkId: number): Promise<ArrayBuffer> {
     const iv = new Uint8Array(12);
     const view = new DataView(iv.buffer);
     view.setUint32(0, chunkId, false); // Big-endian chunk ID as IV

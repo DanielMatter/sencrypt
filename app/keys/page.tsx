@@ -24,6 +24,13 @@ export default async function KeysPage() {
             </div>
 
             <div className="bg-white/5 shadow ring-1 ring-white/10 sm:rounded-lg p-6 mb-8">
+                <h3 className="text-base font-semibold leading-7 text-white mb-4">How to Generate RSA Keys</h3>
+                <p>
+                    To receive files via Sencrypt, you need at least one pair public / private RSA keypair.
+                </p>
+            </div>
+
+            <div className="bg-white/5 shadow ring-1 ring-white/10 sm:rounded-lg p-6 mb-8">
                 <h3 className="text-base font-semibold leading-7 text-white mb-4">Add New Key</h3>
                 <form action={async (formData) => {
                     "use server";

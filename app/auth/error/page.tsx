@@ -2,8 +2,15 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
-export default function ErrorPage() {
+export default function ErrorPageSuspense() {
+    return <Suspense>
+        <ErrorPage />
+    </Suspense>
+}
+
+function ErrorPage() {
     const searchParams = useSearchParams();
     const error = searchParams.get("error");
 
