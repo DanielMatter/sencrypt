@@ -383,7 +383,10 @@ export default function ReceivePage({ params }: { params: Promise<{ uid: string 
                                 <p className="text-md font-bold text-indigo-400">{file.name}</p>
                                 <p className="text-md font-normal">{fileSizeString()}</p>
                                 <br />
-                                <button onClick={() => setFile(null)} className="text-sm font-bold text-red-300 hover:text-red-200 cursor-pointer bg-red-500/20 px-3 py-2 border border-red-500/10 rounded-md">Remove</button>
+                                {
+                                    !isUploading &&
+                                    <button onClick={() => setFile(null)} className="text-sm font-bold text-red-300 hover:text-red-200 cursor-pointer bg-red-500/20 px-3 py-2 border border-red-500/10 rounded-md">Remove</button>
+                                }
                             </div>
                         ) : (
                             <div className="text-center">
