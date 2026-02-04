@@ -1,60 +1,11 @@
 import NextAuth, { AuthOptions } from "next-auth";
-import EmailProvider, { SendVerificationRequestParams } from "next-auth/providers/email";
+import EmailProvider from "next-auth/providers/email";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { db } from "@/lib/db";
 import { users, accounts, sessions, verificationTokens } from "@/lib/schema";
 import { eq } from "drizzle-orm";
-import nodemailer from 'nodemailer';
-import Mail from "nodemailer/lib/mailer";
-import SMTPTransport from "nodemailer/lib/smtp-transport";
+import { sendVerificationRequest } from "./mail";
 
-const port = parseInt(process.env.EMAIL_SERVER_PORT || '465');
-
-const transporterConfig: SMTPTransport.Options = {
-    host: process.env.EMAIL_SERVER_HOST,
-    port,
-    secure: port === 465, // true for 465, false for other ports
-    auth: {
-        user: process.env.EMAIL_SERVER_USER,
-        pass: process.env.EMAIL_SERVER_PASSWORD,
-    },
-};
-const transporter = nodemailer.createTransport(transporterConfig);
-
-// Send the mail via nodemailer
-async function sendMail(params: SendVerificationRequestParams) {
-    const loginUrl = params.url;
-    const email = params.identifier;
-    const expires = params.expires;
-
-    const textVersion = `
-        Welcome to Sencrypt!
-
-        You requested to sign in to Sencrypt on ${process.env.NEXTAUTH_URL}
-
-        Click here to sign in: ${loginUrl}
-
-        This link will expire in ${expires.toISOString()}.
-    `;
-
-    const htmlVersion = `
-        <h1>Welcome to Sencrypt!</h1>
-
-        <p>You requested to sign in to Sencrypt.</p>
-
-        <a href="${loginUrl}">Click here to sign in</a>
-
-        <p>This link will expire in ${expires.toISOString()}.</p>
-    `;
-
-    await transporter.sendMail({
-        from: process.env.EMAIL_FROM,
-        to: email,
-        subject: "Sign in to Sencrypt",
-        text: textVersion,
-        html: htmlVersion,
-    });
-}
 
 export const authOptions: AuthOptions = {
     adapter: DrizzleAdapter(db, {
@@ -70,9 +21,7 @@ export const authOptions: AuthOptions = {
         EmailProvider({
             server: process.env.EMAIL_SERVER,
             from: process.env.EMAIL_FROM,
-            async sendVerificationRequest(params) {
-                await sendMail(params);
-            },
+            sendVerificationRequest,
         }),
     ],
     callbacks: {
