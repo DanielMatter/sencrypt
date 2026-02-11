@@ -105,11 +105,19 @@ async function parseSSHRsa(sshKey: string): Promise<JsonWebKey> {
         return buf;
     };
 
+    const readMpint = () => {
+        let buf = readBuffer();
+        if (buf.length > 0 && buf[0] === 0) {
+            buf = buf.slice(1);
+        }
+        return buf;
+    };
+
     const type = readString();
     if (type !== "ssh-rsa") throw new Error("Only ssh-rsa keys are supported");
 
-    const exponent = readBuffer();
-    const modulus = readBuffer();
+    const exponent = readMpint();
+    const modulus = readMpint();
 
     return {
         kty: "RSA",

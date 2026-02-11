@@ -8,8 +8,46 @@ import {
     importPrivateKey,
     unwrapAESKey,
     decryptChunk,
-    base64ToBuffer
+    base64ToBuffer,
+    generateAESKey,
+    wrapAESKey
 } from "@/lib/crypto";
+
+// Self-test function to verify if the private key can decrypt what its public pair encrypts
+async function verifyKeyIntegrity(privateKey: CryptoKey) {
+    try {
+        console.log("Starting Key Integrity Check...");
+        // 1. Export Private Key to get public components (JWK)
+        const jwk = await window.crypto.subtle.exportKey("jwk", privateKey);
+
+        // 2. Import as Public Key
+        // Delete private parts just to be clean, though importKey 'jwk' ignores them or treats as private if d is present
+        // We strictly want to import as public to simulate send behavior
+        const publicJwk = { kty: jwk.kty, n: jwk.n, e: jwk.e, ext: true };
+        const publicKey = await window.crypto.subtle.importKey(
+            "jwk",
+            publicJwk,
+            { name: "RSA-OAEP", hash: "SHA-256" },
+            true,
+            ["encrypt"]
+        );
+
+        // 3. Generate a random AES key (simulating the process)
+        const aesKey = await generateAESKey();
+
+        // 4. Wrap (Encrypt) it with Public Key
+        const wrappedKey = await wrapAESKey(aesKey, publicKey);
+        console.log("Integrity Check: Wrapped key size:", wrappedKey.byteLength);
+
+        // 5. Unwrap (Decrypt) it with Private Key
+        await unwrapAESKey(wrappedKey, privateKey);
+        console.log("Integrity Check: SUCCESS - Key pair is valid and functional.");
+        return true;
+    } catch (e) {
+        console.error("Integrity Check: FAILED", e);
+        return false;
+    }
+}
 
 export default function DownloadPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
@@ -56,9 +94,40 @@ export default function DownloadPage({ params }: { params: Promise<{ id: string 
 
             // 1. Prepare Private Key and AES Key
             setStatus("Decrypting secure keys...");
-            const privateKey = await importPrivateKey(privateKeyText);
-            const encryptedKeyBuffer = base64ToBuffer(transmission.encryptedKey);
-            const aesKey = await unwrapAESKey(encryptedKeyBuffer, privateKey);
+            let privateKey: CryptoKey;
+            let aesKey: CryptoKey;
+
+            try {
+                console.log("Importing private key...");
+                privateKey = await importPrivateKey(privateKeyText);
+
+                // Debug: Check if the key matches expectation
+                const jwk = await window.crypto.subtle.exportKey("jwk", privateKey);
+                console.log("Private Key Modulus start:", jwk.n?.substring(0, 20));
+
+                // Verify integrity
+                await verifyKeyIntegrity(privateKey);
+
+            } catch (e: any) {
+                console.error("Private key import failed:", e);
+                throw new Error("Invalid Private Key format or password protected keys not supported.");
+            }
+
+            try {
+                console.log("Unwrapping AES key...");
+                const encryptedKeyBuffer = base64ToBuffer(transmission.encryptedKey);
+                console.log("Encrypted key size:", encryptedKeyBuffer.byteLength);
+                console.log("Encrypted key start:", transmission.encryptedKey.substring(0, 20));
+
+                aesKey = await unwrapAESKey(encryptedKeyBuffer, privateKey);
+            } catch (e: any) {
+                console.error("AES Key unwrap failed:", e);
+                // Check if it's OperationError
+                if (e.name === 'OperationError') {
+                    throw new Error("Decryption failed. Please check if you are using the correct Private Key.");
+                }
+                throw e;
+            }
 
             let writableStream: any = null;
             let fileHandleForUniqueOpfs: any = null;
@@ -234,7 +303,7 @@ export default function DownloadPage({ params }: { params: Promise<{ id: string 
                         <button
                             onClick={handleDownload}
                             disabled={isDownloading}
-                            className="flex w-full justify-center rounded-md bg-green-500 px-3 py-2 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-green-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="flex w-full justify-center rounded-md bg-green-500 px-3 py-2 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-green-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {isDownloading ? "Processing..." : "Decrypt & Download"}
                         </button>

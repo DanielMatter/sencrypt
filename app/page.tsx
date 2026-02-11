@@ -24,7 +24,7 @@ export default function Home() {
             <div className="mb-8 flex justify-center">
               <div className="relative rounded-full px-3 py-1 text-sm leading-6 text-zinc-400 ring-1 ring-white/10 hover:ring-white/20 transition-all duration-300 backdrop-blur-sm">
                 On-device encryption now active.{" "}
-                <Link href="#features" className="font-semibold text-indigo-400 ml-1">
+                <Link href="#features" className="font-semibold text-indigo-400 ml-1 whitespace-nowrap">
                   Read more <span aria-hidden="true">&rarr;</span>
                 </Link>
               </div>
@@ -39,14 +39,14 @@ export default function Home() {
             <div className="mt-12 flex items-center justify-center gap-x-6">
               <Link
                 href="/dashboard"
-                className="rounded-full bg-indigo-500 px-6 py-3.5 text-sm font-semibold text-white shadow-xl hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 transition-all duration-300 hover:scale-105"
+                className="rounded-full bg-indigo-500 md:px-6 md:py-3.5 px-4 py-3 text-sm font-semibold text-white shadow-xl hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 transition-all duration-300 hover:scale-105"
               >
                 Start Sending Files
               </Link>
               <Link
                 href="https://github.com/danielmatter/sencrypt"
                 target="_blank"
-                className="rounded-full bg-white/5 px-6 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-white/10 ring-1 ring-inset ring-white/10 transition-all duration-300"
+                className="rounded-full bg-white/5 md:px-6 md:py-3.5 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-white/10 ring-1 ring-inset ring-white/10 transition-all duration-300"
               >
                 View on GitHub
               </Link>
