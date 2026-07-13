@@ -2,8 +2,7 @@
 
 import { use, useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
-import { LockClosedIcon, ArrowDownTrayIcon } from "@heroicons/react/24/outline";
+import { ArrowDownTrayIcon } from "@heroicons/react/24/outline";
 import {
     importPrivateKey,
     unwrapAESKey,
@@ -12,6 +11,62 @@ import {
     generateAESKey,
     wrapAESKey
 } from "@/lib/crypto";
+
+type Transmission = {
+    id: string;
+    fileName: string;
+    fileSize: number;
+    senderName: string;
+    encryptedKey: string;
+    totalChunks: number;
+};
+
+type WritableFileStream = {
+    write: (data: BufferSource | Blob | string) => Promise<void>;
+    close: () => Promise<void>;
+};
+
+type WritableFileHandle = {
+    name: string;
+    createWritable: () => Promise<WritableFileStream>;
+    getFile?: () => Promise<File>;
+};
+
+type WritableDirectoryHandle = {
+    getFileHandle: (name: string, options?: { create?: boolean }) => Promise<WritableFileHandle>;
+};
+
+declare global {
+    interface Window {
+        showDirectoryPicker?: (options?: { mode?: "read" | "readwrite" }) => Promise<WritableDirectoryHandle>;
+        showSaveFilePicker?: (options?: { suggestedName?: string }) => Promise<WritableFileHandle>;
+    }
+}
+
+function getChunkFileName(chunkId: number, totalChunks: number) {
+    const width = Math.max(6, String(totalChunks - 1).length);
+    return `chunk-${String(chunkId).padStart(width, "0")}.part`;
+}
+
+function toBashSingleQuoted(value: string) {
+    return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function getConcatCommand(fileName: string) {
+    return `cat chunk-*.part > ${toBashSingleQuoted(fileName)}`;
+}
+
+function getErrorMessage(error: unknown) {
+    return error instanceof Error ? error.message : String(error);
+}
+
+function isAbortError(error: unknown) {
+    return error instanceof DOMException && error.name === "AbortError";
+}
+
+function isOperationError(error: unknown) {
+    return error instanceof DOMException && error.name === "OperationError";
+}
 
 // Self-test function to verify if the private key can decrypt what its public pair encrypts
 async function verifyKeyIntegrity(privateKey: CryptoKey) {
@@ -52,14 +107,13 @@ async function verifyKeyIntegrity(privateKey: CryptoKey) {
 export default function DownloadPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
     const { data: session } = useSession();
-    const router = useRouter();
 
-    const [transmission, setTransmission] = useState<any>(null);
+    const [transmission, setTransmission] = useState<Transmission | null>(null);
     const [isDownloading, setIsDownloading] = useState(false);
     const [progress, setProgress] = useState(0);
     const [status, setStatus] = useState("");
-    const [privateKeyFile, setPrivateKeyFile] = useState<File | null>(null); // For future implementation
     const [privateKeyText, setPrivateKeyText] = useState("");
+    const [lastConcatCommand, setLastConcatCommand] = useState("");
 
     // Fetch transmission details (I need an API for this, or reuse received API with filtering?)
     // Ideally `api/transmissions/[id]`
@@ -72,77 +126,150 @@ export default function DownloadPage({ params }: { params: Promise<{ id: string 
         if (!session) return;
         fetch('/api/transmissions/received')
             .then(res => res.json())
-            .then(data => {
-                const tx = data.find((t: any) => t.id === id);
+            .then((data: Transmission[]) => {
+                const tx = data.find((t) => t.id === id);
                 if (tx) setTransmission(tx);
                 else setStatus("Transmission not found or you don't have access.");
             });
     }, [id, session]);
 
+    const prepareAesKey = async () => {
+        if (!transmission) throw new Error("Transmission not loaded.");
+
+        setStatus("Decrypting secure keys...");
+
+        let privateKey: CryptoKey;
+
+        try {
+            console.log("Importing private key...");
+            privateKey = await importPrivateKey(privateKeyText);
+
+            // Debug: Check if the key matches expectation
+            const jwk = await window.crypto.subtle.exportKey("jwk", privateKey);
+            console.log("Private Key Modulus start:", jwk.n?.substring(0, 20));
+
+            // Verify integrity
+            await verifyKeyIntegrity(privateKey);
+
+        } catch (e: unknown) {
+            console.error("Private key import failed:", e);
+            throw new Error("Invalid Private Key format or password protected keys not supported.");
+        }
+
+        try {
+            console.log("Unwrapping AES key...");
+            const encryptedKeyBuffer = base64ToBuffer(transmission.encryptedKey);
+            console.log("Encrypted key size:", encryptedKeyBuffer.byteLength);
+            console.log("Encrypted key start:", transmission.encryptedKey.substring(0, 20));
+
+            return await unwrapAESKey(encryptedKeyBuffer, privateKey);
+        } catch (e: unknown) {
+            console.error("AES Key unwrap failed:", e);
+            // Check if it's OperationError
+            if (isOperationError(e)) {
+                throw new Error("Decryption failed. Please check if you are using the correct Private Key.");
+            }
+            throw e;
+        }
+    };
+
+    const handleFolderDownload = async () => {
+        if (!transmission) return;
+        if (!privateKeyText) {
+            alert("Please provide your Private Key!");
+            return;
+        }
+
+        if (!("showDirectoryPicker" in window)) {
+            alert("Folder downloads require Chrome or another browser with the File System Access API.");
+            return;
+        }
+
+        setIsDownloading(true);
+        setProgress(0);
+        setLastConcatCommand("");
+        setStatus("Starting folder download...");
+
+        try {
+            const totalChunks = transmission.totalChunks;
+            const aesKey = await prepareAesKey();
+            const concatCommand = getConcatCommand(transmission.fileName);
+
+            setStatus("Choose an empty output folder...");
+            const directoryHandle = await window.showDirectoryPicker?.({ mode: "readwrite" });
+            if (!directoryHandle) throw new Error("Folder picker is not available in this browser.");
+
+            for (let i = 0; i < totalChunks; i++) {
+                const chunkFileName = getChunkFileName(i, totalChunks);
+                setStatus(`Downloading & decrypting ${chunkFileName} (${i + 1}/${totalChunks})...`);
+
+                const res = await fetch(`/api/transmissions/${id}/chunk?chunkId=${i}`);
+                if (!res.ok) throw new Error("Failed to fetch chunk");
+
+                const encryptedBuffer = await res.arrayBuffer();
+                const decryptedBuffer = await decryptChunk(encryptedBuffer, aesKey, i);
+
+                const fileHandle = await directoryHandle.getFileHandle(chunkFileName, { create: true });
+                const writable = await fileHandle.createWritable();
+                await writable.write(decryptedBuffer);
+                await writable.close();
+
+                setProgress(Math.round(((i + 1) / totalChunks) * 100));
+            }
+
+            const commandHandle = await directoryHandle.getFileHandle("CONCAT_COMMAND.txt", { create: true });
+            const commandWritable = await commandHandle.createWritable();
+            await commandWritable.write(`${concatCommand}\n`);
+            await commandWritable.close();
+
+            setLastConcatCommand(concatCommand);
+            setStatus("Chunk download complete. Run the concat command inside the selected folder.");
+        } catch (err: unknown) {
+            console.error(err);
+            if (!isAbortError(err)) {
+                const message = getErrorMessage(err);
+                setStatus(`Error: ${message}`);
+                alert("Folder download failed: " + message);
+            } else {
+                setStatus("Download cancelled.");
+            }
+        } finally {
+            setIsDownloading(false);
+        }
+    };
+
     const handleDownload = async () => {
         if (!transmission) return;
-        if (!privateKeyText && !privateKeyFile) {
+        if (!privateKeyText) {
             alert("Please provide your Private Key!");
             return;
         }
 
         setIsDownloading(true);
+        setProgress(0);
+        setLastConcatCommand("");
         setStatus("Starting download...");
 
         try {
             const totalChunks = transmission.totalChunks;
 
             // 1. Prepare Private Key and AES Key
-            setStatus("Decrypting secure keys...");
-            let privateKey: CryptoKey;
-            let aesKey: CryptoKey;
+            const aesKey = await prepareAesKey();
 
-            try {
-                console.log("Importing private key...");
-                privateKey = await importPrivateKey(privateKeyText);
-
-                // Debug: Check if the key matches expectation
-                const jwk = await window.crypto.subtle.exportKey("jwk", privateKey);
-                console.log("Private Key Modulus start:", jwk.n?.substring(0, 20));
-
-                // Verify integrity
-                await verifyKeyIntegrity(privateKey);
-
-            } catch (e: any) {
-                console.error("Private key import failed:", e);
-                throw new Error("Invalid Private Key format or password protected keys not supported.");
-            }
-
-            try {
-                console.log("Unwrapping AES key...");
-                const encryptedKeyBuffer = base64ToBuffer(transmission.encryptedKey);
-                console.log("Encrypted key size:", encryptedKeyBuffer.byteLength);
-                console.log("Encrypted key start:", transmission.encryptedKey.substring(0, 20));
-
-                aesKey = await unwrapAESKey(encryptedKeyBuffer, privateKey);
-            } catch (e: any) {
-                console.error("AES Key unwrap failed:", e);
-                // Check if it's OperationError
-                if (e.name === 'OperationError') {
-                    throw new Error("Decryption failed. Please check if you are using the correct Private Key.");
-                }
-                throw e;
-            }
-
-            let writableStream: any = null;
-            let fileHandleForUniqueOpfs: any = null;
+            let writableStream: WritableFileStream | null = null;
+            let fileHandleForUniqueOpfs: WritableFileHandle | null = null;
             const canUseSavePicker = 'showSaveFilePicker' in window;
 
             // Strategy 1: Native File System Access (User Saves File directly)
             if (canUseSavePicker) {
                 try {
-                    // @ts-ignore
-                    const handle = await window.showSaveFilePicker({
+                    const handle = await window.showSaveFilePicker?.({
                         suggestedName: transmission.fileName,
                     });
+                    if (!handle) throw new Error("Save picker is not available in this browser.");
                     writableStream = await handle.createWritable();
-                } catch (err: any) {
-                    if (err.name === 'AbortError') {
+                } catch (err: unknown) {
+                    if (isAbortError(err)) {
                         throw err; // Stop if user cancelled
                     }
                     console.warn("showSaveFilePicker failed, trying fallback", err);
@@ -156,7 +283,6 @@ export default function DownloadPage({ params }: { params: Promise<{ id: string 
                     // Create a unique temp file
                     const tempName = `sencrypt-${id}-${Date.now()}.part`;
                     fileHandleForUniqueOpfs = await root.getFileHandle(tempName, { create: true });
-                    // @ts-ignore
                     writableStream = await fileHandleForUniqueOpfs.createWritable();
                     console.log("Using OPFS for download buffering");
                 } catch (err) {
@@ -184,6 +310,7 @@ export default function DownloadPage({ params }: { params: Promise<{ id: string 
                     // If OPFS, we now export it to the user
                     if (fileHandleForUniqueOpfs) {
                         setStatus("Saving file...");
+                        if (!fileHandleForUniqueOpfs.getFile) throw new Error("Temporary file export is not available.");
                         const file = await fileHandleForUniqueOpfs.getFile();
                         const url = URL.createObjectURL(file);
 
@@ -242,12 +369,13 @@ export default function DownloadPage({ params }: { params: Promise<{ id: string 
 
             setStatus("Download Complete!");
 
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error(err);
             // Don't show error if user cancelled the picker
-            if (err.name !== 'AbortError') {
-                setStatus(`Error: ${err.message}`);
-                alert("Download failed: " + err.message);
+            if (!isAbortError(err)) {
+                const message = getErrorMessage(err);
+                setStatus(`Error: ${message}`);
+                alert("Download failed: " + message);
             } else {
                 setStatus("Download cancelled.");
             }
@@ -307,6 +435,30 @@ export default function DownloadPage({ params }: { params: Promise<{ id: string 
                         >
                             {isDownloading ? "Processing..." : "Decrypt & Download"}
                         </button>
+
+                        <div className="space-y-3 rounded-md bg-white/5 p-4 ring-1 ring-white/10">
+                            <div>
+                                <p className="text-sm font-medium text-white">Chrome large-file fallback</p>
+                                <p className="mt-1 text-sm text-zinc-400">
+                                    Choose a folder and Sencrypt will write decrypted chunk files there. The rebuild command appears after all chunks are downloaded.
+                                </p>
+                            </div>
+
+                            {lastConcatCommand && (
+                                <code className="block overflow-x-auto rounded bg-black/40 px-3 py-2 font-mono text-xs text-green-200">
+                                    {lastConcatCommand}
+                                </code>
+                            )}
+
+                            <button
+                                type="button"
+                                onClick={handleFolderDownload}
+                                disabled={isDownloading}
+                                className="flex w-full justify-center rounded-md bg-zinc-700 px-3 py-2 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-zinc-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isDownloading ? "Processing..." : "Decrypt Chunks to Folder"}
+                            </button>
+                        </div>
                     </>
                 ) : (
                     <p className="text-zinc-400">Loading details...</p>
